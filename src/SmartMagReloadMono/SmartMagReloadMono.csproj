@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SmartMagReloadMono</AssemblyName>
+    <RootNamespace>SmartMagReloadMono</RootNamespace>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Authors>Kirisame dish</Authors>
+    <Product>Kirisame Mag Reload</Product>
+    <Description>In-place magazine swap and no-drop fix for SPT 4.1.6.</Description>
+    <Copyright>MIT</Copyright>
+    <NoWarn>CS0108;CS0114;CS0169;CS0649;CS0162;CS0414;CS8618;CS8632;CS0168</NoWarn>
+    <!-- 换机器编译时：dotnet build -p:SptDir="E:\SPT\EFT" -->
+    <SptDir Condition="'$(SptDir)' == ''">D:\PureEFTv4.1\EFTv4.1</SptDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="BepInEx"><HintPath>$(SptDir)\BepInEx\core\BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(SptDir)\BepInEx\core\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(SptDir)\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(SptDir)\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(SptDir)\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Comfort"><HintPath>$(SptDir)\EscapeFromTarkov_Data\Managed\Comfort.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>
