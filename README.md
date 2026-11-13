@@ -24,7 +24,7 @@ Created by **Kirisame dish**
 ## Requirements / 前置
 
 - SPT **4.1.6** (Mono / BepInEx 5)
-- Optional: **Fika** (synchronisation module is loaded only when Fika is installed)
+- **Fika**: installed Fika is detected; the plugin stays idle in co-op sessions (see below)
 - Recommended: turn **UIFixes → "Reload Magazines In-Place"** OFF if you want this mod to handle swaps.
   (When it is ON, this mod steps back and only does fallback placement.)
   建议关闭 UIFixes 的「Reload Magazines In-Place」；它开着时本插件自动让路，只做落点兜底。
@@ -35,7 +35,6 @@ Created by **Kirisame dish**
    把压缩包内容放进游戏根目录：
    ```
    BepInEx/plugins/SmartMagReloadMono/SmartMagReloadMono.dll
-   BepInEx/plugins/SmartMagReloadMono/SmartMagReloadMono.Fika.dll   (Fika sync, optional)
    ```
 2. Start the game. Config appears in `F12` under **General** / **Debug**.
    进游戏后 F12 里能看到 `General` / `Debug` 两组设置。
@@ -52,19 +51,19 @@ Created by **Kirisame dish**
 
 ## Fika / 联机
 
-- The Fika module broadcasts our own packet (version + profile + two magazine ids) so other clients
-  replay the same swap on their mirror.
-  Fika 模块会广播我们自己的包（版本 + 玩家 + 两只弹匣 id），其他端在镜像上重放同样的交换。
-- Both sides must run the **same mod version**; a mismatch disables sync for that raid with a log + notice.
-  两端必须是同一版本；不一致时本局自动停用同步并提示。
-- Logs are English and prefixed `[KMR]` / `[KMR][Sync]` — attach `BepInEx/LogOutput.log` when reporting.
-  日志为英文、前缀 `[KMR]` / `[KMR][Sync]`，反馈问题时请附 `LogOutput.log`。
+- **Co-op is not supported yet.** When a Fika session is detected, this plugin stays completely idle
+  (vanilla reload behaviour, no inventory changes), so it can not desync other players.
+  **暂不支持联机。** 检测到 Fika 会话时本插件完全不动（保持原版行为、不改物品），不会造成不同步。
+- Fika synchronisation is planned for a later version; it needs a handshake and a packet that can
+  describe the full swap, which is not in 1.0.0.
+  联机同步会在后续版本单独做（需要握手 + 能表达完整交换的包），1.0.0 不含。
+- Logs are English and prefixed `[KMR]` — attach `BepInEx/LogOutput.log` when reporting.
+  日志为英文、前缀 `[KMR]`，反馈问题时请附 `LogOutput.log`。
 
 ## Build / 编译
 
 ```powershell
 dotnet build src/SmartMagReloadMono/SmartMagReloadMono.csproj -c Release -p:SptDir="D:\Your\SPT\EFT"
-dotnet build src/SmartMagReloadMono.Fika/SmartMagReloadMono.Fika.csproj -c Release -p:SptDir="D:\Your\SPT\EFT"
 ```
 
 `SptDir` must point to a folder containing `BepInEx/core` and `EscapeFromTarkov_Data/Managed`.

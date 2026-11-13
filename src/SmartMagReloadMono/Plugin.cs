@@ -24,9 +24,9 @@ namespace SmartMagReloadMono
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<bool> Verbose;
         internal static ConfigEntry<bool> DirectSwapEnabled;
-        internal static ConfigEntry<bool> TakeoverReload;
         internal static ConfigEntry<L.Lang> Language;
         internal static bool UiFixesDelegated;
+        internal static bool NoSpaceForOldMag;
         internal static bool FikaInstalled;
 
         private Harmony _harmony;
@@ -35,6 +35,9 @@ namespace SmartMagReloadMono
         {
             Instance = this;
             Log = Logger;
+
+            // 先按 ini/系统决定语言，再绑定任何显示名，避免语言项自己永远是英文
+            L.Init(L.Lang.Auto);
 
             Language = Config.Bind("General", "Language", L.Lang.Auto,
                 new ConfigDescription(
@@ -49,18 +52,20 @@ namespace SmartMagReloadMono
                     null,
                     new ConfigurationManagerAttributes { DispName = L.T("Enable", "启用") }));
 
-            DirectSwapEnabled = Config.Bind("General / 常规", "In-place swap / 直接交换", true,
-                "Swap magazines in place when possible: no backpack trip, nothing dropped, vanilla animation kept.\n" +
-                "When off: only fallback placement + move back from backpack.\n" +
-                "能对换时直接对换：不过背包、不掉地、保留原版动画；关掉则只做落点兜底 + 换完从背包挪回。");
+            DirectSwapEnabled = Config.Bind("General", "InPlaceSwap", true,
+                new ConfigDescription(
+                    L.T("Swap magazines in place when possible: no backpack trip, nothing dropped, vanilla animation kept.",
+                        "能对换时直接对换：不过背包、不掉地、保留原版动画。"),
+                    null,
+                    new ConfigurationManagerAttributes { DispName = L.T("In-place swap", "直接交换") }));
 
-            TakeoverReload = Config.Bind("General / 常规", "Take over reload / 接管换弹", false,
-                "Default off: if UIFixes in-place reload is ON, this mod steps back and only does fallback placement.\n" +
-                "Turn UIFixes in-place reload off yourself if you want this mod to take over.\n" +
-                "默认关：UIFixes 的就地装填开着时本插件让路；要接管请自行关闭 UIFixes 的那一项。");
 
-            Verbose = Config.Bind("Debug / 调试", "Verbose log / 详细日志", false,
-                "Print per-reload scan details (for troubleshooting).\n打印每次换弹的扫描细节（排错用）。");
+
+            Verbose = Config.Bind("Debug", "VerboseLog", false,
+                new ConfigDescription(
+                    L.T("Print per-reload scan details (for troubleshooting).", "打印每次换弹的扫描细节（排错用）。"),
+                    null,
+                    new ConfigurationManagerAttributes { DispName = L.T("Verbose log", "详细日志") }));
 
             try
             {
@@ -72,14 +77,13 @@ namespace SmartMagReloadMono
             }
             catch { }
 
-            Log?.LogInfo("[KMR] Kirisame Mag Reload 1.0.0 loaded (SPT 4.1.6, Fika installed: " + FikaInstalled + ", lang: " + (L.Chinese ? "zh" : "en") + ")");
-            if (FikaInstalled) Log?.LogInfo("[KMR] Fika detected: full features in solo, auto-disabled in co-op sessions");
+            Log?.LogInfo("[KMR] Kirisame Mag Reload " + Info.Metadata.Version + " loaded (SPT 4.1.6, Fika installed: " + FikaInstalled + ", lang: " + (L.Chinese ? "zh" : "en") + ")");
+            if (FikaInstalled) Log?.LogInfo("[KMR] Fika detected: plugin is idle during co-op sessions");
 
             _harmony = new Harmony(Guid);
             ReloadFix.Install(_harmony);
             DirectSwap.Install(_harmony);
             UiFixesSuppress.Install(this);
-            FikaHook.TryLoad();
         }
 
         private void OnDestroy()
@@ -87,8 +91,20 @@ namespace SmartMagReloadMono
             try { _harmony?.UnpatchSelf(); } catch { }
         }
 
-        /// <summary>仅在"真的进了联机会话"时返回 true（Fika 装了但单机玩不算）。</summary>
+        private static bool _coop;
+        private static float _coopChecked;
+
+        /// <summary>仅在"真的进了联机会话"时返回 true（Fika 装了但单机玩不算）。结果缓存 10 秒。</summary>
         internal static bool InFikaSession()
+        {
+            if (UnityEngine.Time.time - _coopChecked < 10f) return _coop;
+            _coopChecked = UnityEngine.Time.time;
+            _coop = DetectFikaSession();
+            if (_coop) Log?.LogInfo("[KMR] co-op session detected: plugin stays idle (vanilla reload behaviour)");
+            return _coop;
+        }
+
+        private static bool DetectFikaSession()
         {
             try
             {

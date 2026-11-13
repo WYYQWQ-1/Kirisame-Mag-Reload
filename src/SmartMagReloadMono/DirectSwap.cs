@@ -93,6 +93,7 @@ namespace SmartMagReloadMono
             {
                 _plan = null;
                 _swapped = false;
+                Plugin.NoSpaceForOldMag = false;
                 Pairs.Clear();
                 _displace = null; _displaceGrid = null; _drumSpot = null; _displaceFrom = null;
                 var main0 = Comfort.Common.Singleton<GameWorld>.Instance == null ? null : Comfort.Common.Singleton<GameWorld>.Instance.MainPlayer;
@@ -202,7 +203,6 @@ namespace SmartMagReloadMono
                     Pairs[newMove] = pair;
                     __result = new OperationResult<MoveResult>(oldMove);
                     _swapped = true;
-                    FikaHook.Broadcast(plan.OldMag.Id, plan.NewMag.Id);
                     Plugin.Log?.LogInfo("[KMR][B] swapped (old magazine into new magazine cell, new into gun)");
                     return false;
                 }
@@ -441,7 +441,6 @@ namespace SmartMagReloadMono
                 Pairs[oldMove] = pair; Pairs[m2] = pair;
                 __result = new OperationResult<MoveResult>(oldMove);
                 _swapped = true;
-                FikaHook.Broadcast(plan.OldMag.Id, plan.NewMag.Id);
                 Plugin.Log?.LogInfo("[KMR][B] reorder done (new in gun, old in freed cell)");
                 return false;
             }
@@ -463,6 +462,19 @@ namespace SmartMagReloadMono
         }
 
 
+
+        private static void NotifyNoSpace()
+        {
+            try
+            {
+                EFT.Communications.NotificationManager.DisplayMessageNotification(
+                    L.T("No room for the old magazine — dropped on the ground",
+                        "旧弹匣没地方放，掉在地上了"),
+                    EFT.Communications.ENotificationDurationType.Default,
+                    EFT.Communications.ENotificationIconType.Alert);
+            }
+            catch { }
+        }
 
         private static bool BeforeRollback(MoveResult __instance)
         {
@@ -496,7 +508,12 @@ namespace SmartMagReloadMono
             {
                 if (weapon == null || nextMagazine == null) return;
                 var cur = weapon.GetCurrentMagazine();
-                if (plan == null || !_swapped) { Plugin.V("no swap this time (vanilla or fallback path)"); return; }
+                if (plan == null || !_swapped)
+                {
+                    Plugin.V("no swap this time (vanilla or fallback path)");
+                    if (Plugin.NoSpaceForOldMag) NotifyNoSpace();
+                    return;
+                }
                 if (ReferenceEquals(cur, nextMagazine))
                 {
                     Plugin.Log?.LogInfo("[KMR][B] done: gun has " + nextMagazine.ShortName);

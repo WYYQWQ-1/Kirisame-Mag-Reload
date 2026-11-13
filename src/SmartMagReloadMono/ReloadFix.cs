@@ -67,6 +67,7 @@ namespace SmartMagReloadMono
             try
             {
                 if (Plugin.Enabled == null || !Plugin.Enabled.Value) return;
+                if (Plugin.InFikaSession()) { Plugin.V("A skip: co-op session (plugin idle online)"); return; }
                 if (weapon == null || nextMagazine == null) return;
 
                 // B 方案由 DirectSwap 自己的 Run 前缀负责；这里只在它没接手时做 A 方案兜底
@@ -105,20 +106,20 @@ namespace SmartMagReloadMono
                     }
                     catch (Exception ex)
                     {
-                        Plugin.Log?.LogWarning("[KMR] simulate move error (" + grid.ID + "）：" + ex.Message);
+                        Plugin.Log?.LogWarning("[KMR] simulate move error (" + grid.ID + "): " + ex.Message);
                         continue;
                     }
 
                     vestTargetAddress = addr;
                     bool inBackpack = IsUnder(backpackItem, grid);
                     Plugin.Log?.LogInfo("[KMR] vanilla found no target -> using " + OwnerName(grid) + " / " + grid.ID
-                        + (inBackpack ? "（背包)" : ""));
+                        + (inBackpack ? " (backpack)" : ""));
                     if (inBackpack) Remember(ic, oldMag, addr);
                     return;
                 }
 
                 Plugin.Log?.LogWarning("[KMR] no free space in vest/pockets/backpack -> vanilla will drop it");
-                NotifyDropped();
+                Plugin.NoSpaceForOldMag = true;   // 由 B 的方案决定是否真的掉地
             }
             catch (Exception ex) { Plugin.Log?.LogError("[KMR] prefix error: " + ex.Message); }
         }
@@ -170,7 +171,7 @@ namespace SmartMagReloadMono
                     if (loc == null) continue;
                     var addr = grid.CreateItemAddress(loc);
                     var mv = ItemManipulator.Move(oldMag, addr, ic, simulate: true);
-                    if (mv.Failed) { Plugin.V("move-back simulate failed (" + grid.ID + "）：" + mv.Error); continue; }
+                    if (mv.Failed) { Plugin.V("move-back simulate failed (" + grid.ID + "): " + mv.Error); continue; }
 
                     var task = ic.TryRunNetworkTransaction(mv);
                     if (task == null) { Plugin.Log?.LogWarning("[KMR] move-back returned no task"); continue; }
@@ -247,7 +248,7 @@ namespace SmartMagReloadMono
 
         private static string Describe(ItemAddress addr)
         {
-            try { return addr == null ? "无归属" : OwnerName(addr) + " / " + addr.ContainerName; }
+            try { return addr == null ? "no owner" : OwnerName(addr) + " / " + addr.ContainerName; }
             catch { return "?"; }
         }
 

@@ -8,5 +8,5 @@
 - Move-back after the reload finishes when the fallback used the backpack, with position verification.
 - Bottom-right notification when there is really nowhere to place the magazine.
 - Bilingual UI (Chinese / English) following the game language; English logs for bug reports.
-- Fika: optional sync module (`SmartMagReloadMono.Fika.dll`), version-checked, disabled in co-op when versions differ.
+- Fika: detected and handled safely — the plugin stays idle in co-op sessions (no inventory changes), so it can not desync other players. Network sync is planned for a later version.
 - UIFixes compatibility: detection only, this mod steps back when UIFixes in-place reload is ON.
