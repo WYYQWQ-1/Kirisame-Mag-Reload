@@ -49,16 +49,21 @@ Created by **Kirisame dish**
 | Verbose log | off | Per-reload scan details (troubleshooting) |
 | Language | Auto | Follow the game language (zh/en) |
 
-## Fika / 联机
+## Fika / 联机 (experimental)
 
-- **Co-op is not supported yet.** When a Fika session is detected, this plugin stays completely idle
-  (vanilla reload behaviour, no inventory changes), so it can not desync other players.
-  **暂不支持联机。** 检测到 Fika 会话时本插件完全不动（保持原版行为、不改物品），不会造成不同步。
-- Fika synchronisation is planned for a later version; it needs a handshake and a packet that can
-  describe the full swap, which is not in 1.0.0.
-  联机同步会在后续版本单独做（需要握手 + 能表达完整交换的包），1.0.0 不含。
-- Logs are English and prefixed `[KMR]` — attach `BepInEx/LogOutput.log` when reporting.
-  日志为英文、前缀 `[KMR]`，反馈问题时请附 `LogOutput.log`。
+- Co-op in-place swaps are done through Fika's own inventory transaction, not a custom packet.
+  联机换弹走的是 Fika 自带的库存事务，不是我们自己的网络包。
+- Both sides must run the same mod version; Fika already rejects mismatched mod CRCs.
+  两端必须是同一版本；Fika 本身会校验 mod CRC。
+- Bots are handled by the game itself — this mod only touches your own reload.
+  机器人完全交回游戏处理，本插件只动你自己的换弹。
+- Edge cases still under testing: no chamber round when the chamber is empty (falls back to vanilla),
+  and the weapon's visual/ergonomic refresh after a transaction swap.
+  仍在验证的边界：空膛时退回原版换弹；事务交换后枪械视觉/人机刷新。
+- **Not yet verified with two real players.** Please attach `BepInEx/LogOutput.log` when reporting.
+  **尚未经过双人实测**，反馈时请附 `LogOutput.log`。
+- Logs are English and prefixed `[KMR]`.
+  日志为英文，前缀 `[KMR]`。
 
 ## Build / 编译
 

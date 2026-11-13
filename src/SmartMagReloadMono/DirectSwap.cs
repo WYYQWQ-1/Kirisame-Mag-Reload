@@ -46,6 +46,7 @@ namespace SmartMagReloadMono
         private static readonly Dictionary<MoveResult, Pair> Pairs = new Dictionary<MoveResult, Pair>();
         private static Plan _plan;
         private static bool _swapped;
+        private static string _mode = "none";
         private static Item _displace;
         private static Grid _displaceGrid;
         private static LocationInGrid _drumSpot;
@@ -93,6 +94,7 @@ namespace SmartMagReloadMono
             {
                 _plan = null;
                 _swapped = false;
+                _mode = "none";
                 Plugin.NoSpaceForOldMag = false;
                 Pairs.Clear();
                 _displace = null; _displaceGrid = null; _drumSpot = null; _displaceFrom = null;
@@ -133,6 +135,7 @@ namespace SmartMagReloadMono
                 try { if (!dest.Grid.CheckCompatibility(oldMag)) { Plugin.Log?.LogInfo("[KMR][B] B skip: incompatible grid"); return; } }
                 catch { }
 
+                _mode = fits ? "solo-swap" : "solo-reorder";
                 if (fits)
                 {
                     var probe = ItemManipulator.Swap(oldMag, dest, nextMagazine, gunAddr, itemController, simulate: true);
@@ -511,7 +514,11 @@ namespace SmartMagReloadMono
                 if (plan == null || !_swapped)
                 {
                     Plugin.V("no swap this time (vanilla or fallback path)");
-                    if (Plugin.NoSpaceForOldMag) NotifyNoSpace();
+                    if (Plugin.NoSpaceForOldMag)
+                    {
+                        Diag.Reload(Diag.NextSeq(), null, null, nextMagazine, "solo-drop", "no-free-cell");
+                        NotifyNoSpace();
+                    }
                     return;
                 }
                 if (ReferenceEquals(cur, nextMagazine))

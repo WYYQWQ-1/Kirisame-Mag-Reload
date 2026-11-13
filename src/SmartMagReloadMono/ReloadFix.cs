@@ -60,6 +60,30 @@ namespace SmartMagReloadMono
             catch (Exception ex) { Plugin.Log?.LogError("[KMR] patch install failed: " + ex); }
         }
 
+        /// <summary>联机用：算一个此刻真实空闲的落点（弹挂→口袋→背包），不改任何物品。</summary>
+        internal static bool TryFindFallback(InventoryController ic, Magazine mag, out ItemAddress addr)
+        {
+            addr = null;
+            try
+            {
+                var equipment = ic?.Inventory?.Equipment;
+                if (equipment == null || mag == null) return false;
+                foreach (var grid in equipment.GetPrioritizedGridsForUnloadedObject(backpackIncluded: true))
+                {
+                    if (grid == null) continue;
+                    var loc = grid.FindFreeSpace(mag);
+                    if (loc == null) continue;
+                    var candidate = grid.CreateItemAddress(loc);
+                    var mv = ItemManipulator.Move(mag, candidate, ic, simulate: true);
+                    if (mv.Failed) continue;
+                    addr = candidate;
+                    return true;
+                }
+            }
+            catch (Exception ex) { Plugin.Log?.LogWarning("[KMR] fallback scan error: " + ex.Message); }
+            return false;
+        }
+
         // ───────── Run 前缀：给游戏一个此刻空闲的落点 ─────────
         private static void BeforeRun(ItemController itemController, Weapon weapon, Magazine nextMagazine,
                                       ref ItemAddress vestTargetAddress)
@@ -68,6 +92,11 @@ namespace SmartMagReloadMono
             {
                 if (Plugin.Enabled == null || !Plugin.Enabled.Value) return;
                 if (Plugin.InFikaSession()) { Plugin.V("A skip: co-op session (plugin idle online)"); return; }
+
+                var main = Comfort.Common.Singleton<GameWorld>.Instance == null
+                    ? null : Comfort.Common.Singleton<GameWorld>.Instance.MainPlayer;
+                if (main == null || !ReferenceEquals(itemController, main.InventoryController))
+                { Plugin.V("A skip: not local player (bot or observed)"); return; }
                 if (weapon == null || nextMagazine == null) return;
 
                 // B 方案由 DirectSwap 自己的 Run 前缀负责；这里只在它没接手时做 A 方案兜底
@@ -112,7 +141,7 @@ namespace SmartMagReloadMono
 
                     vestTargetAddress = addr;
                     bool inBackpack = IsUnder(backpackItem, grid);
-                    Plugin.Log?.LogInfo("[KMR] vanilla found no target -> using " + OwnerName(grid) + " / " + grid.ID
+                    Plugin.V("vanilla found no target -> using " + OwnerName(grid) + " / " + grid.ID
                         + (inBackpack ? " (backpack)" : ""));
                     if (inBackpack) Remember(ic, oldMag, addr);
                     return;
