@@ -57,9 +57,14 @@ Created by **Kirisame dish**
   两端必须是同一版本；Fika 本身会校验 mod CRC。
 - Bots are handled by the game itself — this mod only touches your own reload.
   机器人完全交回游戏处理，本插件只动你自己的换弹。
-- Edge cases still under testing: no chamber round when the chamber is empty (falls back to vanilla),
-  and the weapon's visual/ergonomic refresh after a transaction swap.
-  仍在验证的边界：空膛时退回原版换弹；事务交换后枪械视觉/人机刷新。
+- Known limitation: if the chamber is empty when you reload in co-op, the in-place swap is skipped
+  and the vanilla reload runs instead (so the magazine may land in a free cell or on the ground).
+  Reason: the transaction path replaces the vanilla reload, and the vanilla step that chambers a round
+  is what makes an empty-chamber reload work; we do not replicate it yet.
+  已知限制：联机时如果膛里没弹，我们不做原地交换，改用原版换弹（旧弹匣可能进空位或掉地）。
+  原因：事务交换替换了原版流程，而"自动补一发进膛"正是原版在这一步做的，我们暂时没有复刻。
+- Known limitation: the weapon's visual / ergonomic refresh after a transaction swap may lag until you switch weapons.
+  已知限制：事务交换后枪械视觉/人机刷新可能滞后，切一次枪即恢复。
 - **Not yet verified with two real players.** Please attach `BepInEx/LogOutput.log` when reporting.
   **尚未经过双人实测**，反馈时请附 `LogOutput.log`。
 - Logs are English and prefixed `[KMR]`.
