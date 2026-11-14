@@ -19,8 +19,8 @@
 - Works with all real magazine sizes (1x1 … 2x3) via real width/height and rotation.
 
 ## Config (F12)
-`General`: Enable · In-place swap · Take over reload · Language (auto / 中文 / English)
-`Debug`: Verbose log
+`General`: Enable · In-place swap · Take over reload · Co-op in-place swap · Language (auto / 中文 / English)
+`Debug`: Verbose log · Dump diagnostics
 
 ## Reporting bugs
 Logs are English and prefixed `[KMR]`. Attach `BepInEx/LogOutput.log`.
@@ -29,4 +29,4 @@ Logs are English and prefixed `[KMR]`. Attach `BepInEx/LogOutput.log`.
 https://github.com/WYYQWQ-1/Kirisame-Mag-Reload — MIT
 
 ## 中文说明
-换弹时把旧弹匣放进「新弹匣原来的格子」：同尺寸或旧弹匣更小会直接对换；旧弹匣更大时走重排，必要时挪开一件挡路的物品。游戏自己找不到位置时，按 弹挂 → 口袋 → 背包 兜底，换弹结束后再挪回；真的没位置才会掉在地上（右下角提示）。与 UI Fixes 并存时会自动让路，也可以在 F12 打开「接管换弹」；联机（Fika）为实验性，走 Fika 自带库存事务，两端需同版本，空膛时退回原版。
+换弹时把旧弹匣放进「新弹匣原来的格子」：同尺寸或旧弹匣更小会直接对换；旧弹匣更大时走重排，必要时挪开一件挡路的物品。游戏自己找不到位置时，按 弹挂 → 口袋 → 背包 兜底，换弹结束后再挪回；真的没位置才会掉在地上（右下角提示）。与 UI Fixes 并存时会自动让路，也可以在 F12 打开「接管换弹」。联机（Fika）换弹同样走原地对换，两端需装同版本；**目前只经过主机侧测试，客机（真两机联机）尚未测试**，遇到问题请附上 `KMR-diagnostics.txt`。
