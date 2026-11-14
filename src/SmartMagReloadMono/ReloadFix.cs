@@ -154,11 +154,16 @@ namespace SmartMagReloadMono
         }
 
         // ───────── 换弹真正结束：把放进背包的旧弹匣挪回弹挂 ─────────
+        /// <summary>换弹真正结束（SwitchToIdlingState）时自增，供联机侧等待。</summary>
+        internal static int ReloadFinishedCount;
+
         private static void AfterReloadFinished(object __instance)
         {
+            try { ReloadFinishedCount++; } catch { }
             try
             {
                 if (Plugin.Enabled == null || !Plugin.Enabled.Value) { Pendings.Clear(); return; }
+                if (Plugin.InFikaSession()) { Pendings.Clear(); return; }   // 联机由 FikaCoopPlacement 负责
                 var rf = __instance.GetType().GetField("ReloadExternalMagResult",
                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                 var result = rf?.GetValue(__instance);

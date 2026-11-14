@@ -41,5 +41,18 @@ namespace SmartMagReloadMono
         {
             Plugin.Log?.LogInfo($"[KMR][coop] {what}" + (string.IsNullOrEmpty(detail) ? "" : " " + detail));
         }
+
+        /// <summary>主机测试日志：只在“联机 + 自己是主机 + 开关开”时输出，方便从 LogOutput 核对主机侧。</summary>
+        internal static void Host(string msg)
+        {
+            try
+            {
+                if (Plugin.HostTestLog == null || !Plugin.HostTestLog.Value) return;
+                if (!Plugin.IsHostCoop()) return;
+                Plugin.Log?.LogInfo("[KMR][host] " + msg);
+            }
+            catch { }
+        }
     }
+
 }

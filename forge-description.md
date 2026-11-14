@@ -14,7 +14,8 @@
 
 ## Compatibility
 - **UI Fixes**: if its in-place reload is ON, this mod steps back. Enable **Take over reload** to disable UI Fixes' swap at runtime (its config file is never modified).
-- **Fika (experimental)**: co-op swaps go through Fika's own inventory transaction; bots and other players are untouched. Both sides need the same mod version. With an empty chamber the co-op reload falls back to vanilla.
+- **Fika**: co-op reloads swap magazines in place, the same as single-player. **Both players must run the same version.**
+- **Tested on the host side only.** A real two-machine session (the other player's view) has not been verified yet. If something looks wrong on your side, attach `KMR-diagnostics.txt` (F12 → Debug → Dump diagnostics).
 - Works with all real magazine sizes (1x1 … 2x3) via real width/height and rotation.
 
 ## Config (F12)

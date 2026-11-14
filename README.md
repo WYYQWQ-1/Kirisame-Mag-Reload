@@ -24,7 +24,7 @@ Created by **Kirisame dish**
 ## Requirements / 前置
 
 - SPT **4.1.6** (Mono / BepInEx 5)
-- **Fika**: installed Fika is detected; the plugin stays idle in co-op sessions (see below)
+- **Fika**: co-op reloads use the same in-place swap; **both players must run the same version**
 - Recommended: turn **UIFixes → "Reload Magazines In-Place"** OFF if you want this mod to handle swaps.
   (When it is ON, this mod steps back and only does fallback placement.)
   建议关闭 UIFixes 的「Reload Magazines In-Place」；它开着时本插件自动让路，只做落点兜底。
@@ -51,10 +51,10 @@ Created by **Kirisame dish**
 
 ## Fika / 联机 (experimental)
 
-- Co-op in-place swaps are done through Fika's own inventory transaction, not a custom packet.
-  联机换弹走的是 Fika 自带的库存事务，不是我们自己的网络包。
-- Both sides must run the same mod version; Fika already rejects mismatched mod CRCs.
-  两端必须是同一版本；Fika 本身会校验 mod CRC。
+- In co-op, the swap runs on both sides from the same reload event, so no custom network packet is involved.
+  联机时两端各自根据同一个换弹事件执行同样的对换，没有自定义网络包。
+- Both sides must run the same version of this mod; if only one side has it, the swap will not match.
+  联机双方必须装同版本本插件；只装一边会导致两边不一致。
 - Bots are handled by the game itself — this mod only touches your own reload.
   机器人完全交回游戏处理，本插件只动你自己的换弹。
 - Known limitation: if the chamber is empty when you reload in co-op, the in-place swap is skipped

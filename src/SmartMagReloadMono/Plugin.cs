@@ -14,7 +14,7 @@ namespace SmartMagReloadMono
     ///   ② 换完回挪：落点在背包时，换弹结束后再挪回弹挂空位
     ///   ③ 直接交换：能对换时直接对换/调整顺序，不过背包
     /// </summary>
-    [BepInPlugin(Guid, "Kirisame Mag Reload — in-place magazine swap & no-drop fix", "1.0.0")]
+    [BepInPlugin(Guid, "Kirisame Mag Reload — in-place magazine swap & no-drop fix", "1.1.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "yu.smartmagreload.mono";
@@ -26,6 +26,10 @@ namespace SmartMagReloadMono
         internal static ConfigEntry<bool> DirectSwapEnabled;
         internal static ConfigEntry<bool> TakeoverReload;
         internal static ConfigEntry<L.Lang> Language;
+        internal static ConfigEntry<bool> CoopZeroGap;
+        internal static ConfigEntry<bool> HostTestLog;
+        internal static ConfigEntry<bool> CoopLocalSwap;
+        internal static ConfigEntry<bool> DumpDiagnostics;
         internal static bool UiFixesDelegated;
         internal static bool NoSpaceForOldMag;
         internal static bool FikaInstalled;
@@ -69,6 +73,35 @@ namespace SmartMagReloadMono
                         "当 UIFixes 的就地装填开着时：打开此项会在运行时禁用它的交换（不改它的配置文件），由本插件接管换弹。"),
                     null,
                     new ConfigurationManagerAttributes { DispName = L.T("Take over reload", "接管换弹") }));
+
+            CoopZeroGap = Config.Bind("General", "CoopZeroGap", true,
+                new ConfigDescription(
+                    L.T("Co-op only: pre-move what is in the way, then re-issue the reload so the old magazine lands in its final cell with no interim step. Adds one host round-trip before the animation.",
+                        "仅联机：先挪开挡路的东西，再重新发起换弹，让旧弹匣一步到最终位置（没有中间态；代价是每次换弹动画晚一个往返）。"),
+                    null,
+                    new ConfigurationManagerAttributes { DispName = L.T("Co-op: zero-gap swap", "联机：零中间态") }));
+
+            DumpDiagnostics = Config.Bind("Debug", "DumpDiagnostics", false,
+                new ConfigDescription(
+                    L.T("Tick this to write KMR-diagnostics.txt next to the BepInEx folder (mod/fika versions, session, last KMR log lines). Attach that file when reporting a co-op issue; it turns itself back off.",
+                        "勾一下会把 KMR-diagnostics.txt 写到 BepInEx 同级目录（插件/Fika 版本、会话、最近 KMR 日志行）。报联机问题时附上这个文件；勾完会自动关回去。"),
+                    null,
+                    new ConfigurationManagerAttributes { DispName = L.T("Dump diagnostics", "导出诊断日志") }));
+            DumpDiagnostics.SettingChanged += (a, b) => { if (DumpDiagnostics.Value) DumpDiag(); };
+
+            CoopLocalSwap = Config.Bind("General", "CoopLocalSwap", true,
+                new ConfigDescription(
+                    L.T("Co-op: also apply the same in-place swap on other players' copies when their reload packet is replayed. Both sides must run this mod.",
+                        "联机：其他玩家的换弹包重放时，也在他那份副本上执行同样的交换。双方都要装本插件。"),
+                    null,
+                    new ConfigurationManagerAttributes { DispName = L.T("Co-op in-place swap (both sides)", "联机就地交换（双方）") }));
+
+            HostTestLog = Config.Bind("Debug", "HostTestLog", true,
+                new ConfigDescription(
+                    L.T("Co-op host only: print a step-by-step line for every reload so the host side can be checked from the log.",
+                        "仅联机主机：每次换弹按步骤打印一行，方便从日志核对主机侧结果。"),
+                    null,
+                    new ConfigurationManagerAttributes { DispName = L.T("Host test log", "主机测试日志") }));
 
             Verbose = Config.Bind("Debug", "VerboseLog", false,
                 new ConfigDescription(
@@ -189,6 +222,59 @@ namespace SmartMagReloadMono
                 return (int)(_pPeers.GetValue(net) ?? 0);
             }
             catch { return 0; }
+        }
+
+        /// <summary>Fika 会话（不看 peer 数）：客户端或主机都算。用于避免 solo hook 双接管。</summary>
+        internal static bool IsHostCoop()
+        {
+            try { return GetFikaBool("IsServer") && GetFikaPeerCount() > 0; }
+            catch { return false; }
+        }
+
+        internal static int PeerCount()
+        {
+            try { return GetFikaPeerCount(); } catch { return 0; }
+        }
+
+        /// <summary>把版本、会话状态和最近 KMR 日志行写成一个文件，方便别人交日志。</summary>
+        internal static void DumpDiag()
+        {
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("Kirisame Mag Reload diagnostics");
+                sb.AppendLine("time      : " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                sb.AppendLine("plugin    : " + (Instance != null ? Instance.Info.Metadata.Version.ToString() : "?"));
+                sb.AppendLine("fika      : " + (FikaInstalled ? FikaVersion : "not installed"));
+                sb.AppendLine("session   : IsClient=" + GetFikaBool("IsClient") + " IsServer=" + GetFikaBool("IsServer") + " peers=" + GetFikaPeerCount());
+                sb.AppendLine("flags     : enable=" + (Enabled != null && Enabled.Value)
+                    + " inPlaceSwap=" + (DirectSwapEnabled != null && DirectSwapEnabled.Value)
+                    + " zeroGap=" + (CoopZeroGap != null && CoopZeroGap.Value)
+                    + " takeover=" + (TakeoverReload != null && TakeoverReload.Value)
+);
+                sb.AppendLine("uiFixes   : " + UiFixesDelegated);
+                sb.AppendLine();
+                sb.AppendLine("--- last KMR lines ---");
+                var logPath = System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "LogOutput.log");
+                if (System.IO.File.Exists(logPath))
+                {
+                    var lines = System.IO.File.ReadAllLines(logPath);
+                    int n = 0;
+                    for (int i = lines.Length - 1; i >= 0 && n < 400; i--)
+                    {
+                        if (lines[i].Contains("[KMR]")) { n++; }
+                        if (lines[i].Contains("[KMR]")) sb.AppendLine(lines[i]);
+                    }
+                }
+                var outPath = System.IO.Path.Combine(BepInEx.Paths.GameRootPath, "KMR-diagnostics.txt");
+                System.IO.File.WriteAllText(outPath, sb.ToString());
+                Log?.LogInfo("[KMR] diagnostics written to " + outPath);
+            }
+            catch (Exception ex) { Log?.LogWarning("[KMR] diagnostics failed: " + ex.Message); }
+            finally
+            {
+                try { DumpDiagnostics.Value = false; } catch { }
+            }
         }
 
         internal static void V(string msg)

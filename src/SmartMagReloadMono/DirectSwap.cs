@@ -46,6 +46,9 @@ namespace SmartMagReloadMono
         private static readonly Dictionary<MoveResult, Pair> Pairs = new Dictionary<MoveResult, Pair>();
         private static Plan _plan;
         private static bool _swapped;
+        private static bool _isObservedCopy;       // 这次 Run 是“别人的弹匣”在重放（联机观察端）
+        private static string _skipReason;         // 观察端为什么没交换
+        private static int _coopSwapFail;
         private static string _mode = "none";
         private static Item _displace;
         private static Grid _displaceGrid;
@@ -103,36 +106,42 @@ namespace SmartMagReloadMono
                     $"ic={(itemController != null)} isMain={(main0 != null && ReferenceEquals(itemController, main0.InventoryController))} " +
                     $"old={(weapon?.GetCurrentMagazine()?.ShortName ?? "null")} vta={(vestTargetAddress != null)}");
                 if (Plugin.Enabled == null || !Plugin.Enabled.Value) return;
-                if (Plugin.FikaInstalled && Plugin.InFikaSession()) { Plugin.V("B skip: co-op session"); return; }
-                if (Plugin.DirectSwapEnabled == null || !Plugin.DirectSwapEnabled.Value) return;
+                                if (Plugin.DirectSwapEnabled == null || !Plugin.DirectSwapEnabled.Value) return;
                 if (Plugin.UiFixesDelegated) { Plugin.V("B defer: UIFixes in-place reload is ON"); return; }
-                if (quickReload) { Plugin.Log?.LogInfo("[KMR][B] B skip: quick reload"); return; }
+                if (quickReload) { _skipReason = "quick reload"; Plugin.Log?.LogInfo("[KMR][B] B skip: quick reload"); return; }
                 if (weapon == null || nextMagazine == null || itemController == null)
                 { Plugin.Log?.LogInfo("[KMR][B] skip: null argument"); return; }
                 var main = Comfort.Common.Singleton<GameWorld>.Instance == null ? null : Comfort.Common.Singleton<GameWorld>.Instance.MainPlayer;
-                if (main == null || !ReferenceEquals(itemController, main.InventoryController)) { Plugin.Log?.LogInfo("[KMR][B] B skip: not local player"); return; }
+                bool isLocalPlayer = main != null && ReferenceEquals(itemController, main.InventoryController);
+                _isObservedCopy = !isLocalPlayer;
+                _skipReason = null;
+                bool isReplayedCoop = !isLocalPlayer
+                    && Plugin.CoopLocalSwap != null && Plugin.CoopLocalSwap.Value
+                    && Plugin.FikaInstalled && Plugin.InFikaSession()
+                    && IsPlayerOwnedController(itemController);
+                if (!isLocalPlayer && !isReplayedCoop) { _skipReason = "not local player"; Plugin.Log?.LogInfo("[KMR][B] B skip: not local player"); return; }
 
                 var oldMag = weapon.GetCurrentMagazine();
                 if (oldMag == null || ReferenceEquals(oldMag, nextMagazine))
                 { Plugin.Log?.LogInfo("[KMR][B] skip: no old magazine or same magazine"); return; }
 
                 var dest = nextMagazine.CurrentAddress as GridItemAddress;
-                if (dest == null) { Plugin.Log?.LogInfo("[KMR][B] B skip: new magazine not in a grid"); return; }
-                if (!ReferenceEquals(dest.Grid.GetItemAt(dest.LocationInGrid), nextMagazine)) { Plugin.Log?.LogInfo("[KMR][B] B skip: grid cell mismatch"); return; }
-                if (!ReferenceEquals(dest.GetOwner(), itemController)) { Plugin.Log?.LogInfo("[KMR][B] B skip: different owner"); return; }
+                if (dest == null) { _skipReason = "new magazine not in a grid"; Plugin.Log?.LogInfo("[KMR][B] B skip: new magazine not in a grid"); return; }
+                if (!ReferenceEquals(dest.Grid.GetItemAt(dest.LocationInGrid), nextMagazine)) { _skipReason = "grid cell mismatch"; Plugin.Log?.LogInfo("[KMR][B] B skip: grid cell mismatch"); return; }
+                if (!ReferenceEquals(dest.GetOwner(), itemController)) { _skipReason = "different owner"; Plugin.Log?.LogInfo("[KMR][B] B skip: different owner"); return; }
 
                 var gunSlot = weapon.GetMagazineSlot();
-                if (gunSlot == null) { Plugin.Log?.LogInfo("[KMR][B] B skip: no magazine slot"); return; }
+                if (gunSlot == null) { _skipReason = "no magazine slot"; Plugin.Log?.LogInfo("[KMR][B] B skip: no magazine slot"); return; }
                 var gunAddr = gunSlot.CreateItemAddress() as SlotItemAddress;
-                if (gunAddr == null) { Plugin.Log?.LogInfo("[KMR][B] B skip: gun slot address type mismatch"); return; }
-                if (nextMagazine.IsMagazineWithBelt) { Plugin.Log?.LogInfo("[KMR][B] B skip: belt-fed magazine"); return; }
+                if (gunAddr == null) { _skipReason = "gun slot address type mismatch"; Plugin.Log?.LogInfo("[KMR][B] B skip: gun slot address type mismatch"); return; }
+                if (nextMagazine.IsMagazineWithBelt) { _skipReason = "belt-fed magazine"; Plugin.Log?.LogInfo("[KMR][B] B skip: belt-fed magazine"); return; }
 
                 var rot = dest.LocationInGrid.r;
                 IntVec2 a, b;
                 try { a = oldMag.CalculateRotatedSize(rot); b = nextMagazine.CalculateRotatedSize(rot); }
                 catch (Exception ex) { Plugin.Log?.LogInfo("[KMR][B] skip: size calc failed " + ex.Message); return; }
                 bool fits = (a.X <= b.X && a.Y <= b.Y);
-                try { if (!dest.Grid.CheckCompatibility(oldMag)) { Plugin.Log?.LogInfo("[KMR][B] B skip: incompatible grid"); return; } }
+                try { if (!dest.Grid.CheckCompatibility(oldMag)) { _skipReason = "incompatible grid"; Plugin.Log?.LogInfo("[KMR][B] B skip: incompatible grid"); return; } }
                 catch { }
 
                 _mode = fits ? "solo-swap" : "solo-reorder";
@@ -265,6 +274,30 @@ namespace SmartMagReloadMono
             }
             catch (Exception ex) { Plugin.Log?.LogWarning("[KMR][B] displace lookup error: " + ex.Message); }
             return false;
+        }
+
+        /// <summary>这个控制器属于一个玩家（不是 bot）吗？观察到的玩家重放换弹时要用同一套交换。</summary>
+        internal static bool IsPlayerOwnedController(ItemController ic)
+        {
+            try
+            {
+                // PlayerInventoryController.Player 是 public 字段（不是属性），必须直读
+                var poic = ic as Player.PlayerInventoryController;
+                var owner = poic?.Player as Player;
+                if (owner == null) return false;
+
+                const System.Reflection.BindingFlags F = System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+                var t = owner.GetType();
+                if (t.Name.IndexOf("Bot", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+                // 观察到的 AI 用同一个 ObservedInventoryController，必须排掉（bot 的弹匣不能让客户端改）
+                var aiField = t.GetField("IsObservedAI", F);
+                if (aiField != null && aiField.GetValue(owner) is bool isAiField && isAiField) return false;
+                var aiProp = t.GetProperty("IsAI", F);
+                if (aiProp != null && aiProp.GetValue(owner) is bool isAiProp && isAiProp) return false;
+                return true;
+            }
+            catch { return false; }
         }
 
         private static LocationInGrid FindSpot(Grid grid, Item exclude, Item target)
@@ -466,7 +499,7 @@ namespace SmartMagReloadMono
 
 
 
-        private static void NotifyNoSpace()
+        internal static void NotifyNoSpace()
         {
             try
             {
@@ -511,6 +544,12 @@ namespace SmartMagReloadMono
             {
                 if (weapon == null || nextMagazine == null) return;
                 var cur = weapon.GetCurrentMagazine();
+                if (_isObservedCopy)
+                {
+                    var curMag = weapon.GetCurrentMagazine();
+                    Plugin.Log?.LogInfo($"[KMR][B][coop] old={(curMag == null ? "none" : curMag.Id)} new={nextMagazine.Id}"
+                        + $" {(plan != null && _swapped ? "ok" : "skip=" + (_skipReason ?? "vanilla"))}");
+                }
                 if (plan == null || !_swapped)
                 {
                     Plugin.V("no swap this time (vanilla or fallback path)");
