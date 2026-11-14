@@ -2,7 +2,7 @@
 
 ![Demo: in-place swap (1)](https://raw.githubusercontent.com/WYYQWQ-1/Kirisame-Mag-Reload/main/screenshots/demo-1.webp)
 
-![Demo: in-place swap (2)](https://raw.githubusercontent.com/WYYQWQ-1/Kirisame-Mag-Reload/main/screenshots/demo-2.webp)
+![Demo: in-place swap (2)](https://raw.githubusercontent.com/WYYQWQ-1/Kirisame-Mag-Reload/main/screenshots/demo-2.gif)
 
 **SPT 4.1.6 — Mono.** Swap your magazines in place instead of stuffing the old one into your backpack or losing it on the ground.
 
