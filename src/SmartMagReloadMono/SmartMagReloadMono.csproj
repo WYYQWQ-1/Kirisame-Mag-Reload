@@ -1,14 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <DefineConstants Condition="'$(ForceCoop)'=='true'">$(DefineConstants);KMR_FORCE_COOP</DefineConstants>
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>latest</LangVersion>
     <AssemblyName>SmartMagReloadMono</AssemblyName>
     <RootNamespace>SmartMagReloadMono</RootNamespace>
     <Nullable>disable</Nullable>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>1.1.0</Version>
-    <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.0</FileVersion>
+    <Version>1.2.1</Version>
+    <AssemblyVersion>1.2.1.0</AssemblyVersion>
+    <FileVersion>1.2.1.0</FileVersion>
     <Authors>Kirisame dish</Authors>
     <Product>Kirisame Mag Reload</Product>
     <Description>In-place magazine swap and no-drop fix for SPT 4.1.6.</Description>
@@ -23,6 +24,7 @@
     <Reference Include="Assembly-CSharp"><HintPath>$(SptDir)\EscapeFromTarkov_Data\Managed\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>$(SptDir)\EscapeFromTarkov_Data\Managed\UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(SptDir)\EscapeFromTarkov_Data\Managed\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Fika.Core"><HintPath>$(SptDir)\BepInEx\plugins\Fika\Fika.Core.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Comfort"><HintPath>$(SptDir)\EscapeFromTarkov_Data\Managed\Comfort.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 </Project>

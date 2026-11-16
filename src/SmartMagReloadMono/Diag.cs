@@ -48,7 +48,7 @@ namespace SmartMagReloadMono
             try
             {
                 if (Plugin.HostTestLog == null || !Plugin.HostTestLog.Value) return;
-                if (!Plugin.IsHostCoop()) return;
+                if (!Plugin.IsHostCoop() && !Plugin.ForceCoopForTest) return;
                 Plugin.Log?.LogInfo("[KMR][host] " + msg);
             }
             catch { }

@@ -14,7 +14,7 @@ namespace SmartMagReloadMono
     ///   ② 换完回挪：落点在背包时，换弹结束后再挪回弹挂空位
     ///   ③ 直接交换：能对换时直接对换/调整顺序，不过背包
     /// </summary>
-    [BepInPlugin(Guid, "Kirisame Mag Reload — in-place magazine swap & no-drop fix", "1.1.0")]
+    [BepInPlugin(Guid, "Kirisame Mag Reload — in-place magazine swap & no-drop fix", "1.2.1")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "yu.smartmagreload.mono";
@@ -27,8 +27,18 @@ namespace SmartMagReloadMono
         internal static ConfigEntry<bool> TakeoverReload;
         internal static ConfigEntry<L.Lang> Language;
         internal static ConfigEntry<bool> CoopZeroGap;
+        /// <summary>真同步开关：开=换弹前用网络事务预挪（两端同一份指令），关=Tosox 同款两端各算。</summary>
+        internal static ConfigEntry<bool> TrueSync;
         internal static ConfigEntry<bool> HostTestLog;
         internal static ConfigEntry<bool> CoopLocalSwap;
+        /// <summary>联机：把一次 Swap 作为一条网络事务发出去（真同步，默认关）。</summary>
+        internal static ConfigEntry<bool> SwapNetworkTx;
+        /// <summary>★仅测试：编译期常量，Release 包内不存在（-p:ForceCoop=true 才编进去）。</summary>
+#if KMR_FORCE_COOP
+        internal static readonly bool ForceCoopForTest = true;
+#else
+        internal static readonly bool ForceCoopForTest = false;
+#endif
         internal static ConfigEntry<bool> DumpDiagnostics;
         internal static bool UiFixesDelegated;
         internal static bool NoSpaceForOldMag;
@@ -74,12 +84,13 @@ namespace SmartMagReloadMono
                     null,
                     new ConfigurationManagerAttributes { DispName = L.T("Take over reload", "接管换弹") }));
 
-            CoopZeroGap = Config.Bind("General", "CoopZeroGap", true,
+            CoopZeroGap = Config.Bind("General", "CoopZeroGap", false,
                 new ConfigDescription(
                     L.T("Co-op only: pre-move what is in the way, then re-issue the reload so the old magazine lands in its final cell with no interim step. Adds one host round-trip before the animation.",
                         "仅联机：先挪开挡路的东西，再重新发起换弹，让旧弹匣一步到最终位置（没有中间态；代价是每次换弹动画晚一个往返）。"),
                     null,
                     new ConfigurationManagerAttributes { DispName = L.T("Co-op: zero-gap swap", "联机：零中间态") }));
+
 
             DumpDiagnostics = Config.Bind("Debug", "DumpDiagnostics", false,
                 new ConfigDescription(
@@ -95,6 +106,17 @@ namespace SmartMagReloadMono
                         "联机：其他玩家的换弹包重放时，也在他那份副本上执行同样的交换。双方都要装本插件。"),
                     null,
                     new ConfigurationManagerAttributes { DispName = L.T("Co-op in-place swap (both sides)", "联机就地交换（双方）") }));
+
+            RetentionEnabled = Config.Bind("General", "Retention", true,
+                new ConfigDescription(
+                    L.T("Co-op only: keep the old magazine in place (stash it back into the cell the new magazine came from; no backpack access unless the rig/pockets are full).",
+                        "仅联机：换下来的旧弹匣留在原地（放回新弹匣腾出的那格；弹挂/口袋满时才用背包）。"),
+                    null,
+                    new ConfigurationManagerAttributes { DispName = L.T("Co-op: keep old magazine in place", "联机：旧弹匣留原位") }));
+
+
+
+
 
             HostTestLog = Config.Bind("Debug", "HostTestLog", true,
                 new ConfigDescription(
@@ -120,7 +142,12 @@ namespace SmartMagReloadMono
             catch { }
 
             Log?.LogInfo("[KMR] Kirisame Mag Reload " + Info.Metadata.Version + " loaded (SPT 4.1.6, Fika installed: " + FikaInstalled + ", lang: " + (L.Chinese ? "zh" : "en") + ")");
+            Log?.LogInfo("[KMR] co-op retention architecture credit: Tosox (SPT-MagRetentionReload), independent implementation");
             if (FikaInstalled) Log?.LogInfo("[KMR] Fika detected (version " + FikaVersion + "): solo full features, co-op uses transaction swap / placement");
+            if (FikaInstalled) InitCoopSyncSafely(Info.Metadata.Version.ToString());
+#if KMR_FORCE_COOP
+            Log?.LogWarning("[KMR] TEST BUILD: forced co-op path (KMR_FORCE_COOP) — do not ship");
+#endif
 
             _harmony = new Harmony(Guid);
             ReloadFix.Install(_harmony);
@@ -128,6 +155,18 @@ namespace SmartMagReloadMono
             UiFixesSuppress.Install(this);
             TakeoverReload.SettingChanged += (a, b) => UiFixesSuppress.OnTakeoverSettingChanged(null, EventArgs.Empty);
             FikaCoopPlacement.Install(_harmony);
+            Retention.Install(_harmony);
+        }
+
+        /// <summary>
+        /// 单独方法 + NoInlining：没装 Fika 时这段永远不会被 JIT，
+        /// 避免因为缺 Fika.Core 引用导致整个插件加载失败。
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void InitCoopSyncSafely(string version)
+        {
+            try { CoopSync.Init(version); }
+            catch (Exception ex) { Log?.LogWarning("[KMR] co-op notice disabled: " + ex.Message); }
         }
 
         private void OnDestroy()
@@ -135,6 +174,7 @@ namespace SmartMagReloadMono
             try { _harmony?.UnpatchSelf(); } catch { }
         }
 
+        private static bool _forceCoopLogged;
         private static bool _coop;
         private static string _coopDetail = "";
 
@@ -225,6 +265,67 @@ namespace SmartMagReloadMono
         }
 
         /// <summary>Fika 会话（不看 peer 数）：客户端或主机都算。用于避免 solo hook 双接管。</summary>
+        /// <summary>是否走“联机事务路径”（真实联机，或测试编译时强制）。只给让路判断用，别扩散。</summary>
+        /// <summary>是不是 Fika 会话（含主机 0 人）。纯单人不算。</summary>
+        internal static bool FikaSessionAny()
+        {
+            try { return GetFikaBool("IsClient") || GetFikaBool("IsServer"); } catch { return false; }
+        }
+
+        internal static bool SwapTxActive()
+        {
+            return (InFikaSession() || (ForceCoopForTest && FikaSessionAny()))
+                && SwapNetworkTx != null && SwapNetworkTx.Value;
+        }
+
+        /// <summary>联机弹匣保留开关（架构参考 Tosox 的 MagRetentionReload，独立实现）。</summary>
+        internal static ConfigEntry<bool> RetentionEnabled;
+
+        /// <summary>联机生效判定：真联机，或测试构建在 Fika 房里强制。</summary>
+        /// <summary>这次换弹是否由 Retention 全权负责（别人不要再判空间、不要再弹提示）。</summary>
+        internal static bool RetentionOwns()
+        {
+            try { return Retention.HandlesThisReload(); }   // 一处判定，四处引用，避免漂移
+            catch { return false; }
+        }
+
+        internal static bool CoopSession()
+        {
+            try
+            {
+                if (InFikaSession()) return true;
+                // 测试构建：只要在对局里就走联机路径（不需要真的开 Fika 房），
+                // 发布构建里 ForceCoopForTest 是编译期 false，这段不存在。
+                if (ForceCoopForTest && InRaidForTest()) return true;
+                return false;
+            }
+            catch { return false; }
+        }
+
+        private static bool InRaidForTest()
+        {
+            try
+            {
+                var gw = Comfort.Common.Singleton<EFT.GameWorld>.Instance;
+                return gw != null && gw.MainPlayer != null;
+            }
+            catch { return false; }
+        }
+
+        internal static bool RetentionOn()
+        {
+            return RetentionEnabled != null && RetentionEnabled.Value;
+        }
+
+        internal static bool CoopPathActive()
+        {
+            // 真联机（有别人）才走事务路径；Fika 房但 peers=0 等于自己玩 ⇒ 走单机逻辑（更快、更成熟）
+            var tested = ForceCoopForTest && FikaSessionAny();   // 仅测试构建：Fika 房内强制走事务
+            bool zeroGap = CoopZeroGap != null && CoopZeroGap.Value;
+            bool trueSync = TrueSync != null && TrueSync.Value;
+            return (InFikaSession() || tested) && (zeroGap || trueSync);
+        }
+
         internal static bool IsHostCoop()
         {
             try { return GetFikaBool("IsServer") && GetFikaPeerCount() > 0; }

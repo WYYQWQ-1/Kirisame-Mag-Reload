@@ -92,17 +92,21 @@ namespace SmartMagReloadMono
                 if (_reentering) return true;                         // 我们自己的重入：让原版照跑
                 if (magazine == null || __instance == null) return true;
                 if (Plugin.Enabled == null || !Plugin.Enabled.Value) return true;
-                if (!Plugin.InFikaSession()) return true;   // 纯单机由 DirectSwap/ReloadFix 处理
+                // 纯单机由 DirectSwap/ReloadFix 处理；测试构建(KMR_FORCE_COOP)允许在 Host+0 人时也走这条
+                if (!Plugin.InFikaSession() && !(Plugin.ForceCoopForTest && Plugin.FikaSessionAny())) return true;
 
                 // 两端都装本插件时，交给 DirectSwap（UIFixes 式）：各端在 Run 里做同样的交换，
                 // 不需要临时位、不借道背包。这里只保留兜底（DirectSwap 关掉时才走预挪路径）。
+                if (Plugin.UiFixesDelegated) return true;             // UIFixes 接管时让路（优先，避免两边都撒手）
+                if (Plugin.RetentionOwns()) { Plugin.V("coop: retention owns this reload"); return true; }
+                // ★ 只有“没开 CoopZeroGap”时才让路给 DirectSwap；
+                //   开了就走本文件的事务路径（能同步重排）。
                 if (Plugin.DirectSwapEnabled != null && Plugin.DirectSwapEnabled.Value
-                    )
+                    && !Plugin.CoopPathActive())
                 {
                     Plugin.V("handoff to DirectSwap");
                     return true;
                 }
-                if (Plugin.UiFixesDelegated) return true;             // UIFixes 接管时让路
 
                 var player = GetField<Player>(__instance, "_player") ?? GetField<Player>(__instance, "player");
                 var weapon = GetField<Weapon>(__instance, "Item") ?? GetField<Weapon>(__instance, "_item");
@@ -121,8 +125,9 @@ namespace SmartMagReloadMono
                 {
                     if (UnityEngine.Time.time - _preMoveStartedAt < 10f)
                     {
-                        Diag.Coop("zerogap-busy", "another zero-gap reload is still in flight; key ignored");
-                        return false;                                  // 吞掉这次，别和它抢同一堆物品
+                        // ★ 此刻还没改任何状态 ⇒ 直接放行原版（等价于重发，且不丢回调）
+                        Diag.Coop("zerogap-busy", "another zero-gap reload is in flight; letting vanilla handle this one");
+                        return true;
                     }
                     Diag.Coop("zerogap-watchdog", "previous zero-gap lock looked stuck; letting the vanilla reload through");
                     _preMoveBusy = false;
@@ -165,7 +170,7 @@ namespace SmartMagReloadMono
 
                 // 零中间态：先把新弹匣挪开（腾出它那格），必要时再把挡路物挪开，
                 // 然后带“最终落点”重入换弹 —— 原版会把旧弹匣直接放进最终位置，没有任何“先落一下”。
-                if (guardOk && Plugin.CoopZeroGap != null && Plugin.CoopZeroGap.Value)
+                if (guardOk && Plugin.CoopPathActive())
                 {
                     Displace reorder = null;
                     ItemAddress target = null;
@@ -182,14 +187,16 @@ namespace SmartMagReloadMono
                         _preMoveStartedAt = UnityEngine.Time.time;
                         try
                         {
+                            var originalLanding = itemAddress;      // ★ 原版给的落点（null 表示原版会掉地/各端自算）
                             Plugin.Instance.StartCoroutine(WrapReload(
-                                PreMoveThenReload(__instance, ic, player, weapon, magazine, current, dest, reorder, target, callback),
-                                ic, player, weapon, magazine, current, dest, reorder, callback));
+                                PreMoveThenReload(__instance, ic, player, weapon, magazine, current, dest, reorder, target, callback, originalLanding),
+                                ic, player, weapon, magazine, current, dest, reorder, callback, originalLanding));
                         }
                         catch (Exception ex)
                         {
                             _preMoveBusy = false;
                             Diag.Coop("zerogap-fallback", "coroutine start failed: " + ex.Message);
+                            return true;                               // 取消预挪，本次交原版，回调不丢
                         }
                         return false;                                  // 取消本次，预挪完成后带新落点重入
                     }
@@ -255,7 +262,8 @@ namespace SmartMagReloadMono
 
         /// <summary>协程外层包一层：内部任何未捕获异常都要走恢复，不能静默死掉。</summary>
         private static IEnumerator WrapReload(IEnumerator inner, InventoryController ic, Player player, Weapon weapon,
-            Magazine newMag, Magazine oldMag, GridItemAddress dest, Displace plan, Comfort.Common.Callback callback)
+            Magazine newMag, Magazine oldMag, GridItemAddress dest, Displace plan, Comfort.Common.Callback callback,
+            ItemAddress originalLanding)
         {
             while (true)
             {
@@ -275,7 +283,7 @@ namespace SmartMagReloadMono
                 if (crashed)
                 {
                     Diag.Coop("zerogap-crashed", "coroutine threw: " + err);
-                    yield return CrashRecover(ic, player, weapon, newMag, oldMag, dest, plan, callback);
+                    yield return CrashRecover(ic, player, weapon, newMag, oldMag, dest, plan, callback, originalLanding);
                     yield break;
                 }
                 if (!ok) yield break;
@@ -285,7 +293,8 @@ namespace SmartMagReloadMono
 
         /// <summary>零中间态中途崩掉后的兜底：把东西放回去，再重新发起一次普通换弹。</summary>
         private static IEnumerator CrashRecover(InventoryController ic, Player player, Weapon weapon,
-            Magazine newMag, Magazine oldMag, GridItemAddress dest, Displace plan, Comfort.Common.Callback callback)
+            Magazine newMag, Magazine oldMag, GridItemAddress dest, Displace plan, Comfort.Common.Callback callback,
+            ItemAddress originalLanding)
         {
             bool restoreNew = false, restoreBlocker = false, reissue = false;
             try
@@ -310,7 +319,7 @@ namespace SmartMagReloadMono
             if (restoreNew) yield return Restore(ic, newMag, dest, 0);
             if (restoreBlocker) yield return Restore(ic, plan.Blocker, plan.From, 0);
             yield return null;
-            if (reissue) ReissueWithFallback(null, ic, player, weapon, newMag, oldMag, dest, callback);
+            if (reissue) ReissueWithFallback(null, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
             _preMoveBusy = false;
         }
 
@@ -353,7 +362,8 @@ namespace SmartMagReloadMono
         /// 包也带着这个地址发出去，所以两端一致且没有“先落一下”的中间态。
         /// </summary>
         private static IEnumerator PreMoveThenReload(object controller, InventoryController ic, Player player, Weapon weapon,
-            Magazine newMag, Magazine oldMag, GridItemAddress dest, Displace plan, ItemAddress target, Comfort.Common.Callback callback)
+            Magazine newMag, Magazine oldMag, GridItemAddress dest, Displace plan, ItemAddress target, Comfort.Common.Callback callback,
+            ItemAddress originalLanding)
         {
             int seq = Diag.NextSeq();
             ItemAddress tempNew = null, tempBlocker = null;
@@ -365,18 +375,18 @@ namespace SmartMagReloadMono
                 // 1) 需要挤开时：先把挡路物挪到临时位
                 if (plan != null && plan.Blocker != null)
                 {
-                    tempBlocker = FindTempSpot(ic, plan.Blocker, plan.Grid, plan.Spot, oldMag);
+                    tempBlocker = FindTempSpot(ic, plan.Blocker, plan.Grid, plan.Spot, oldMag, allowBackpack: false);
                     if (tempBlocker == null)
                     {
                         Diag.Coop("zerogap-fallback", $"seq={seq} no temporary cell for the blocker");
-                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                         yield break;
                     }
                     var rb = ItemManipulator.Move(plan.Blocker, tempBlocker, ic, simulate: true);
                     if (rb.Failed)
                     {
                         Diag.Coop("zerogap-fallback", $"seq={seq} blocker move failed: {rb.Error}");
-                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                         yield break;
                     }
                     var tb = ic.TryRunNetworkTransaction(rb);
@@ -384,7 +394,7 @@ namespace SmartMagReloadMono
                     if (!IsOk(tb))
                     {
                         Diag.Coop("zerogap-fallback", $"seq={seq} blocker move rejected by host");
-                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                         yield break;
                     }
                     blockerMoved = true;
@@ -396,12 +406,12 @@ namespace SmartMagReloadMono
                 bool newSitsInTarget = newMag.CurrentAddress != null && SameCell(newMag.CurrentAddress, dest);
                 if (needVacate && newSitsInTarget)
                 {
-                    tempNew = FindTempSpot(ic, newMag, dest.Grid, dest.LocationInGrid, newMag);
+                    tempNew = FindTempSpot(ic, newMag, dest.Grid, dest.LocationInGrid, newMag, allowBackpack: false);
                     if (tempNew == null)
                     {
                         Diag.Coop("zerogap-fallback", $"seq={seq} no temporary cell for the new magazine");
                         if (blockerMoved) yield return ReturnBlocker(ic, plan, seq);
-                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                         yield break;
                     }
                     var rn = ItemManipulator.Move(newMag, tempNew, ic, simulate: true);
@@ -409,7 +419,7 @@ namespace SmartMagReloadMono
                     {
                         Diag.Coop("zerogap-fallback", $"seq={seq} new magazine move failed: {rn.Error}");
                         if (blockerMoved) yield return ReturnBlocker(ic, plan, seq);
-                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                         yield break;
                     }
                     var tn = ic.TryRunNetworkTransaction(rn);
@@ -418,7 +428,7 @@ namespace SmartMagReloadMono
                     {
                         Diag.Coop("zerogap-fallback", $"seq={seq} new magazine move rejected by host");
                         if (blockerMoved) yield return ReturnBlocker(ic, plan, seq);
-                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                        ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                         yield break;
                     }
                     newMoved = true;
@@ -431,7 +441,7 @@ namespace SmartMagReloadMono
                     Diag.Coop("zerogap-fallback", $"seq={seq} state changed during pre-move");
                     if (newMoved) yield return Restore(ic, newMag, dest, seq);
                     if (blockerMoved) yield return ReturnBlocker(ic, plan, seq);
-                    ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                    ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                     yield break;
                 }
                 var probe = ItemManipulator.Move(oldMag, target, ic, simulate: true);
@@ -440,7 +450,7 @@ namespace SmartMagReloadMono
                     Diag.Coop("zerogap-fallback", $"seq={seq} target no longer fits ({probe.Error})");
                     if (newMoved) yield return Restore(ic, newMag, dest, seq);
                     if (blockerMoved) yield return ReturnBlocker(ic, plan, seq);
-                    ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                    ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                     yield break;
                 }
 
@@ -471,7 +481,7 @@ namespace SmartMagReloadMono
                     _beautify.Clear();
                     if (newMoved) yield return Restore(ic, newMag, dest, seq);
                     if (blockerMoved) yield return ReturnBlocker(ic, plan, seq);
-                    ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                    ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                     yield break;
                 }
 
@@ -483,7 +493,7 @@ namespace SmartMagReloadMono
                     _beautify.Clear();
                     if (newMoved) yield return Restore(ic, newMag, dest, seq);
                     if (blockerMoved) yield return ReturnBlocker(ic, plan, seq);
-                    ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback);
+                    ReissueWithFallback(controller, ic, player, weapon, newMag, oldMag, dest, callback, originalLanding);
                     yield break;
                 }
                 if (newMoved && tempNew != null)
@@ -535,10 +545,19 @@ namespace SmartMagReloadMono
 
         /// <summary>零中间态失败时的退路：带一个合法落点重新发起换弹，并交给事后校正。</summary>
         private static void ReissueWithFallback(object controller, InventoryController ic, Player player, Weapon weapon,
-            Magazine newMag, Magazine oldMag, GridItemAddress dest, Comfort.Common.Callback callback)
+            Magazine newMag, Magazine oldMag, GridItemAddress dest, Comfort.Common.Callback callback,
+            ItemAddress originalLanding)
         {
             ItemAddress fb = null;
-            try { ReloadFix.TryFindFallback(ic, oldMag, out fb); } catch { }
+            // ★ 先用原版给的落点（它代表“这一局本该发生的事”，两端一致）；
+            //   验证不了再退回本地兜底（兜底只影响本端，是最后手段）
+            try
+            {
+                if (originalLanding != null && !ItemManipulator.Move(oldMag, originalLanding, ic, simulate: true).Failed)
+                    fb = originalLanding;
+            }
+            catch { }
+            if (fb == null) { try { ReloadFix.TryFindFallback(ic, oldMag, out fb); } catch { } }
             if (fb == null)
             {
                 Reissue(controller, newMag, null, callback);
@@ -598,16 +617,43 @@ namespace SmartMagReloadMono
             return list;
         }
 
-        private static ItemAddress FindTempSpot(InventoryController ic, Item item, Grid avoidGrid, LocationInGrid avoidLoc, Item avoidBy)
+        /// <summary>
+        /// 这一格是否真的收得下这个物品：过滤器 + 游戏自己的 Add 校验（模拟）。
+        /// 只算几何会选到“尺寸够但过滤器不收”的格子，实机表现为新弹匣被塞去背包/掉地。
+        /// </summary>
+        private static bool CanPlaceHere(InventoryController ic, Item item, Grid g, LocationInGrid loc, out string why)
+        {
+            why = null;
+            if (ic == null || item == null || g == null || loc == null) { why = "null arg"; return false; }
+            try { if (!g.CheckCompatibility(item)) { why = "CheckCompatibility=false"; return false; } }
+            catch (Exception e) { why = "compat threw: " + e.Message; return false; }
+            try
+            {
+                var r = ItemManipulator.Add(item, g.CreateItemAddress(loc), ic, simulate: true);
+                if (r.Failed) { why = r.Error.GetType().Name + ": " + r.Error; return false; }
+                return true;
+            }
+            catch (Exception e) { why = "add threw: " + e.Message; return false; }
+        }
+
+        private static ItemAddress FindTempSpot(InventoryController ic, Item item, Grid avoidGrid, LocationInGrid avoidLoc, Item avoidBy, bool allowBackpack = true)
         {
             try
             {
                 var equipment = ic.Inventory?.Equipment;
                 if (equipment == null) return null;
+                var bpMain = ic.Inventory?.Equipment?.GetSlot(EquipmentSlot.Backpack)?.ContainedItem as CompoundItem;
+                Func<Grid, bool> isBackpack = g =>
+                {
+                    if (bpMain == null || g == null) return false;
+                    foreach (var cont in bpMain.Containers) if (ReferenceEquals(cont, g)) return true;
+                    return false;
+                };
                 var grids = new List<Grid>();
                 foreach (var g in AllGrids(ic))
                 {
                     if (g == null || ReferenceEquals(g, avoidGrid)) continue;   // 同格单独处理
+                    if (!allowBackpack && isBackpack(g)) continue;              // ★ 不拿背包当临时位（1.1.0 行为）
                     grids.Add(g);
                 }
                 // 同格优先只在“原网格不是背包”时做（挡路物在背包里时，宁可回弹挂也不要留背包）
@@ -629,12 +675,24 @@ namespace SmartMagReloadMono
                 if (avoidGrid != null && !avoidIsBackpack)
                 {
                     var near = FindSpotAvoiding(avoidGrid, item, item, avoidLoc, avoidBy);
-                    if (near != null) return avoidGrid.CreateItemAddress(near);
+                    if (near != null)
+                    {
+                        if (CanPlaceHere(ic, item, avoidGrid, near, out var nw)) return avoidGrid.CreateItemAddress(near);
+                        Diag.Coop("temp-reject", $"{item.ShortName} rejected near-cell {avoidGrid.ID}: {nw}");
+                    }
                 }
                 foreach (var g in grids)
                 {
                     var spot = FindSpot(g, item, item);
-                    if (spot != null) return g.CreateItemAddress(spot);
+                    if (spot == null) continue;
+                    if (!CanPlaceHere(ic, item, g, spot, out var wy))
+                    {
+                        string owner = "?";
+                        try { owner = g.ParentItem != null ? g.ParentItem.ShortName : "?"; } catch { }
+                        Diag.Coop("temp-reject", $"{item.ShortName} rejected by grid {g.ID} in {owner}: {wy}");
+                        continue;
+                    }
+                    return g.CreateItemAddress(spot);
                 }
                 Diag.Coop("temp-scan", $"no cell for {item.ShortName} ({item.Width}x{item.Height}) in {grids.Count} near grids nor backpack");
                 return null;
@@ -827,6 +885,17 @@ namespace SmartMagReloadMono
 
         // ------------------------------------------------- 挡路物让位查找（联机/单机都用）
 
+        /// <summary>能不能动它：锁定 / 任务物 / 不可拾取 一律不碰。</summary>
+        private static bool CanRelocate(Item x, Magazine nextMag, Magazine oldMag)
+        {
+            if (x == null) return false;
+            if (ReferenceEquals(x, oldMag) || ReferenceEquals(x, nextMag)) return false;
+            try { if (x.PinLockState != EItemPinLockState.Free) return false; } catch { return false; }
+            try { if (x.QuestItem) return false; } catch { return false; }
+            try { if (!x.CanBePickedUp) return false; } catch { return false; }
+            return true;
+        }
+
         private static Displace FindDisplace(InventoryController ic, GridItemAddress dest, Magazine nextMag, Magazine oldMag)
         {
             try
@@ -834,23 +903,82 @@ namespace SmartMagReloadMono
                 var equipment = ic.Inventory?.Equipment;
                 if (equipment == null) return null;
 
-                // 同格优先：新弹匣原格里另有空位时，旧弹匣直接放进去，不用搬任何东西（和单机一致）
+                var nr = nextMag.CalculateRotatedSize(dest.LocationInGrid.r);
+
+                // ① 同格优先：新弹匣原格里另有空位，旧弹匣直接放进去（不搬东西）
                 var same = FindSpotAvoiding(dest.Grid, nextMag, oldMag, dest.LocationInGrid);
                 if (same != null)
                     return new Displace { Blocker = null, Grid = dest.Grid, Spot = same, From = null };
 
+                // ② 同格里把挡路件挪进“腾出的那格”，旧弹匣填它空出的位置
+                var bySize = new List<Item>();
+                foreach (var it in dest.Grid.Items)
+                    if (CanRelocate(it, nextMag, oldMag)) bySize.Add(it);
+                bySize.Sort((a, b) =>
+                {
+                    var ca = a.CalculateCellSize(); var cb = b.CalculateCellSize();
+                    return (ca.X * ca.Y).CompareTo(cb.X * cb.Y);
+                });
+                foreach (var x in bySize)
+                {
+                    var xr = x.CalculateRotatedSize(dest.LocationInGrid.r);
+                    if (xr.X > nr.X || xr.Y > nr.Y) continue;
+                    try { if (!dest.Grid.CheckCompatibility(x)) continue; } catch { continue; }
+                    var spot = FindSpot(dest.Grid, x, oldMag);
+                    if (spot == null) continue;
+                    return new Displace { Blocker = x, Grid = dest.Grid, Spot = spot, From = x.CurrentAddress };
+                }
+
+                // ③ 别的格子里某件塞进腾出的那格，旧弹匣填它空出的位置（按体积从小到大）
                 foreach (var g in equipment.GetPrioritizedGridsForUnloadedObject(backpackIncluded: false))
                 {
                     if (g == null || ReferenceEquals(g, dest.Grid)) continue;
-                    foreach (var x in new List<Item>(g.Items))
+                    var cands = new List<Item>();
+                    foreach (var it in g.Items)
+                        if (CanRelocate(it, nextMag, oldMag)) cands.Add(it);
+                    cands.Sort((a, b) =>
                     {
-                        if (ReferenceEquals(x, oldMag) || ReferenceEquals(x, nextMag)) continue;
+                        var ca = a.CalculateCellSize(); var cb = b.CalculateCellSize();
+                        return (ca.X * ca.Y).CompareTo(cb.X * cb.Y);
+                    });
+                    foreach (var x in cands)
+                    {
+                        var xr = x.CalculateRotatedSize(dest.LocationInGrid.r);
+                        if (xr.X > nr.X || xr.Y > nr.Y) continue;
+                        try { if (!dest.Grid.CheckCompatibility(x)) continue; } catch { continue; }
+
+                        var from = x.CurrentAddress;                  // ★ 必须在 probe 之前抓
+                        var na = nextMag.CurrentAddress as GridItemAddress;
+                        bool removed = false;
+                        bool moveOk = false;
+                        try
+                        {
+                            // ★ 新弹匣此刻还占着腾出的那格，不摘掉 probe 必然失败（整条变死代码）
+                            if (na != null && ReferenceEquals(na.Grid, dest.Grid))
+                            {
+                                removed = true;
+                                dest.Grid.RemoveItem(nextMag, na.LocationInGrid);
+                            }
+                            moveOk = !ItemManipulator.Move(x, dest, ic, simulate: true).Failed;
+                        }
+                        catch { moveOk = false; }
+                        finally
+                        {
+                            if (removed && nextMag.CurrentAddress == null)
+                            {
+                                try
+                                {
+                                    if (dest.Grid.HasFreeSpace(nextMag, na.LocationInGrid)) dest.Grid.PlaceItem(nextMag, na.LocationInGrid);
+                                    else Plugin.Log?.LogError("[KMR] co-op displace: dest not free when restoring new magazine");
+                                }
+                                catch (Exception ex) { Plugin.Log?.LogError("[KMR] co-op displace restore: " + ex.Message); }
+                            }
+                        }
+                        if (!moveOk) continue;
+
                         var spot = FindSpot(g, x, oldMag);
                         if (spot == null) continue;
-                        var xr = x.CalculateRotatedSize(dest.LocationInGrid.r);
-                        var nr = nextMag.CalculateRotatedSize(dest.LocationInGrid.r);
-                        if (xr.X > nr.X || xr.Y > nr.Y) continue;
-                        return new Displace { Blocker = x, Grid = g, Spot = spot, From = x.CurrentAddress };
+                        return new Displace { Blocker = x, Grid = g, Spot = spot, From = from };
                     }
                 }
             }
@@ -888,7 +1016,7 @@ namespace SmartMagReloadMono
                     Mark(occ, w, h, avoid, csb.X, csb.Y);
                 }
 
-                int tw = target.Width, th = target.Height;
+                var tsz = CellSize(target); int tw = tsz.X, th = tsz.Y;
                 for (int o = 0; o < 2; o++)
                 {
                     int rw = o == 0 ? tw : th, rh = o == 0 ? th : tw;
@@ -933,7 +1061,7 @@ namespace SmartMagReloadMono
                         for (int y = a.LocationInGrid.y; y < a.LocationInGrid.y + ih && y < h; y++)
                             if (x >= 0 && y >= 0) occ[x, y] = true;
                 }
-                int tw = target.Width, th = target.Height;
+                var tsz = CellSize(target); int tw = tsz.X, th = tsz.Y;
                 for (int o = 0; o < 2; o++)
                 {
                     int rw = o == 0 ? tw : th, rh = o == 0 ? th : tw;

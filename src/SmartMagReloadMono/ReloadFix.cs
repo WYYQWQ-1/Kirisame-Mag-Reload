@@ -90,8 +90,11 @@ namespace SmartMagReloadMono
         {
             try
             {
+                // ★ 每次换弹现算：上一次的“没地方”状态不能带到这一次（否则掉地提示会误报）
+                Plugin.NoSpaceForOldMag = false;
                 if (Plugin.Enabled == null || !Plugin.Enabled.Value) return;
                 if (Plugin.InFikaSession()) { Plugin.V("A skip: co-op session (plugin idle online)"); return; }
+                if (Plugin.RetentionOwns()) { Plugin.V("A skip: retention owns this reload"); return; }
 
                 var main = Comfort.Common.Singleton<GameWorld>.Instance == null
                     ? null : Comfort.Common.Singleton<GameWorld>.Instance.MainPlayer;
@@ -284,18 +287,6 @@ namespace SmartMagReloadMono
         {
             try { return addr == null ? "no owner" : OwnerName(addr) + " / " + addr.ContainerName; }
             catch { return "?"; }
-        }
-
-        private static void NotifyDropped()
-        {
-            try
-            {
-                EFT.Communications.NotificationManager.DisplayMessageNotification(
-                    L.T("No room for the old magazine — dropped on the ground", "旧弹匣没地方放，掉在地上了"),
-                    EFT.Communications.ENotificationDurationType.Default,
-                    EFT.Communications.ENotificationIconType.Alert);
-            }
-            catch { }
         }
     }
 }

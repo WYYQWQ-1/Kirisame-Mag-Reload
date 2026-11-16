@@ -49,26 +49,37 @@ Created by **Kirisame dish**
 | Verbose log | off | Per-reload scan details (troubleshooting) |
 | Language | Auto | Follow the game language (zh/en) |
 
-## Fika / 联机 (experimental)
+## Fika / 联机
 
-- In co-op, the swap runs on both sides from the same reload event, so no custom network packet is involved.
-  联机时两端各自根据同一个换弹事件执行同样的对换，没有自定义网络包。
-- Both sides must run the same version of this mod; if only one side has it, the swap will not match.
-  联机双方必须装同版本本插件；只装一边会导致两边不一致。
-- Bots are handled by the game itself — this mod only touches your own reload.
-  机器人完全交回游戏处理，本插件只动你自己的换弹。
-- Known limitation: if the chamber is empty when you reload in co-op, the in-place swap is skipped
-  and the vanilla reload runs instead (so the magazine may land in a free cell or on the ground).
-  Reason: the transaction path replaces the vanilla reload, and the vanilla step that chambers a round
-  is what makes an empty-chamber reload work; we do not replicate it yet.
-  已知限制：联机时如果膛里没弹，我们不做原地交换，改用原版换弹（旧弹匣可能进空位或掉地）。
-  原因：事务交换替换了原版流程，而"自动补一发进膛"正是原版在这一步做的，我们暂时没有复刻。
-- Known limitation: the weapon's visual / ergonomic refresh after a transaction swap may lag until you switch weapons.
-  已知限制：事务交换后枪械视觉/人机刷新可能滞后，切一次枪即恢复。
-- **Not yet verified with two real players.** Please attach `BepInEx/LogOutput.log` when reporting.
-  **尚未经过双人实测**，反馈时请附 `LogOutput.log`。
+- Old magazine stays in the cell the new one came from. If it does not fit, blockers are moved aside
+  (into the freed cell, or to another free cell in the rig/pockets); the backpack is only used when
+  rig and pockets are full.
+  旧弹匣留在新弹匣腾出的那一格；放不进时会挪开挡路件（挪进腾出的格，或挪到弹挂/口袋的其它空格），
+  背包只在弹挂和口袋都放满时才会用到。
+- Both players must run the same build. A version mismatch is detected at raid start and turns retention
+  off for that raid (with a warning) instead of letting the two sides diverge silently.
+  两端必须是同一份构建；版本不一致会在开局被检测到并整局关闭保留，而不是悄悄各算各的。
+- Placement is computed on each side from the same reload event. In normal play both players see the
+  same result, but it is not a networked inventory instruction, so heavy simultaneous inventory edits
+  can differ. Real two-player sessions are not verified yet.
+  落点是两端根据同一次换弹各自计算：正常情况一致，但不是网络指令，极端同时操作时可能有差异。
+  真双人尚未验证（已测：主机侧、Fika 单人房）。
+- Known limitation: quick reload (fast reload) is not touched at all — vanilla drops the magazine there.
+  已知限制：快速换弹（quick reload）完全不接管，原版在那里本来就会丢掉旧弹匣。
 - Logs are English and prefixed `[KMR]`.
   日志为英文，前缀 `[KMR]`。
+
+## Settings / 设置（F12 → General）
+
+| Key | Default | What it does / 作用 |
+|---|---|---|
+| `Enabled` | on | Master switch. Off =完全原版 |
+| `DirectSwap` | on | In-place swap on reload (single player + co-op). 换弹原地对换 |
+| `TakeoverReload` | on | Let this mod handle the reload when UIFixes' in-place reload is on. 接管 UIFixes 的换弹 |
+| `Retention` | on | Co-op: keep the old magazine in place, move blockers aside. 联机：旧弹匣留原位 + 挪挡路件 |
+| `CoopLocalSwap` | on | Apply the same swap on other players' copies when their reload packet is replayed. 联机：在其它玩家的副本上也执行同样交换 |
+| `HostTestLog` | off | Extra co-op diagnostics. 额外联机诊断日志 |
+| `DumpDiagnostics` (Debug) | off | Write `KMR-diagnostics.txt` for bug reports. 生成诊断文件 |
 
 ## Build / 编译
 
@@ -82,3 +93,22 @@ dotnet build src/SmartMagReloadMono/SmartMagReloadMono.csproj -c Release -p:SptD
 ## License / 许可
 
 MIT. See [LICENSE](LICENSE).
+
+## Co-op notes / 联机说明
+
+- Both players must run the **same build** of this mod. A version mismatch is detected at raid start and
+  turns retention off for that raid (with a warning) instead of letting the two sides diverge silently.
+  两端必须是同一份构建；版本不一致会在开局被检测到并整局关闭保留，而不是悄悄各算各的。
+- Co-op placement is computed on each side from the same reload event, so in normal play both players see
+  the same result — but it is not a networked inventory instruction, so an edge case with heavy
+  simultaneous inventory edits can differ. Try the experimental **True sync** option if you want the
+  rearranging to go through transactions before the reload.
+  联机落点是两端根据同一次换弹各自计算：正常情况一致，但不是网络指令，极端同时操作时可能有差异。
+- Real two-player sessions have not been verified yet; host-side and solo-in-a-Fika-room are tested.
+  真双人尚未验证（已测：主机侧、Fika 单人房）。
+
+## Credits / 致谢
+
+Co-op retention architecture follows **Mag Retention Reload** by Tosox
+(https://github.com/Tosox/SPT-MagRetentionReload) — independent implementation, no code copied.
+See `ACKNOWLEDGEMENTS.md`.

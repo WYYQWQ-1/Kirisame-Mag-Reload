@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.1
+
+- Co-op reloads now behave like single-player: old magazine stays in the cell the new one came from, and blockers are moved aside (into the freed cell, or to another free cell in the rig/pockets) when needed.
+- No more unsearched ("black") cells after co-op reloads — the stow result now travels with the reload's own events.
+- The "magazine dropped" notice no longer fires when the magazine was actually placed.
+- Backpack is only used when rig and pockets are full (single-player rule).
+- Version handshake over the network: if two players run different builds, retention is disabled for the raid instead of silently diverging.
+- New experimental option **True sync** (default off): rearranges before the reload through network transactions instead of computing the result on each side.
+
 ## 1.1.0
 
 - Co-op (Fika) reloads now swap magazines in place, the same way single-player does — the old magazine no longer detours through the backpack. Both players must run the same version of this mod.
