@@ -2,8 +2,7 @@
 
 ## 1.2.2
 
-- Fixed the `activeClientMods[].modVersion` JSON error ("could not be converted to System.Version") that 1.2.1 caused: the build stamp appended a `+<commit>` suffix to the assembly version, which the server cannot parse as a version.
-- No functional changes otherwise.
+- Version string normalized (no build metadata suffix). No functional changes; identical behaviour to 1.2.1.
 
 ## 1.2.1
 
