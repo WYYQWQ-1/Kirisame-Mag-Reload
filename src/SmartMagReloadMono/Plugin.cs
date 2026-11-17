@@ -14,7 +14,7 @@ namespace SmartMagReloadMono
     ///   ② 换完回挪：落点在背包时，换弹结束后再挪回弹挂空位
     ///   ③ 直接交换：能对换时直接对换/调整顺序，不过背包
     /// </summary>
-    [BepInPlugin(Guid, "Kirisame Mag Reload — in-place magazine swap & no-drop fix", "1.2.1")]
+    [BepInPlugin(Guid, "Kirisame Mag Reload — in-place magazine swap & no-drop fix", "1.2.2")]
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Guid = "yu.smartmagreload.mono";

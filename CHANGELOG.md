@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2
+
+- Fixed the `activeClientMods[].modVersion` JSON error ("could not be converted to System.Version") that 1.2.1 caused: the build stamp appended a `+<commit>` suffix to the assembly version, which the server cannot parse as a version.
+- No functional changes otherwise.
+
 ## 1.2.1
 
 - Co-op reloads now behave like single-player: old magazine stays in the cell the new one came from, and blockers are moved aside (into the freed cell, or to another free cell in the rig/pockets) when needed.
